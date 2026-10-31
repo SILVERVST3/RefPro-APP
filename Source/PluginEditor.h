@@ -97,7 +97,7 @@ public:
     std::function<void (int)> onSelect;      // banda selecionada (-1 = nenhuma)
     std::function<void()>     onNodeMoved;
 
-    void setTarget (const TargetData& t) { target = t; repaint(); }
+    void setTarget (const TargetData& t) { target = t; shrinkTicks = 0; repaint(); }
     void setScale (float v) { s = v; }
     void setBars (bool b)   { bars = b; repaint(); }
     void setExtra (bool e)  { extra = e; repaint(); }
@@ -115,7 +115,8 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
-    void timerCallback() override { repaint(); }
+    void timerCallback() override { updateRange(); repaint(); }
+    void updateRange();
     juce::Rectangle<float> plotRect() const;
     float xOf (float f) const;
     float yOf (float db) const;
@@ -130,8 +131,13 @@ private:
     float s = 1.0f, hoverX = -1.0f;
     bool bars = false, extra = false, leveled = false;
     int selected = -1, dragBand = -1;
-    float topDb() const    { return leveled ? 10.0f : rp::dbTop; }
-    float bottomDb() const { return leveled ? -10.0f : rp::dbBottom; }
+    // escala vertical automática: nunca menor que o padrão, cresce para caber qualquer ponto das curvas
+    float rangeTop = rp::dbTop, rangeBottom = rp::dbBottom;
+    int shrinkTicks = 0;
+    bool rangeLeveled = false;
+    float gridStep() const { return leveled ? 5.0f : 4.0f; }
+    float topDb() const    { return rangeTop; }
+    float bottomDb() const { return rangeBottom; }
 };
 
 // Painel de edição da banda selecionada (tipo / freq / ganho / Q / dinâmica / slope / canal / solo)

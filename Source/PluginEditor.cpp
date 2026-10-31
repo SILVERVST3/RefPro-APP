@@ -223,6 +223,42 @@ float GraphView::xOf (float f) const
     const auto r = plotRect();
     return r.getX() + r.getWidth() * juce::jlimit (0.0f, 1.02f, rp::freqToX01 (f));
 }
+void GraphView::updateRange()
+{
+    const float defTop = leveled ? 10.0f : rp::dbTop, defBot = leveled ? -10.0f : rp::dbBottom;
+    if (rangeLeveled != leveled) { rangeLeveled = leveled; rangeTop = defTop; rangeBottom = defBot; shrinkTicks = 0; }
+
+    float hi = -1.0e9f, lo = 1.0e9f;
+    for (size_t i = 0; i < (size_t) rp::numBands; ++i)
+    {
+        const float c = leveled ? 0.0f : target.centre[i], o = leveled ? target.centre[i] : 0.0f;
+        hi = std::max (hi, c + target.tol[i]);  lo = std::min (lo, c - target.tol[i]);
+        if (an.hasData.load())
+        {
+            const float a = an.avgDb[i].load() - o;
+            hi = std::max (hi, a);  lo = std::min (lo, a);
+            if (extra) { const float f = an.fastDb[i].load() - o; hi = std::max (hi, f); lo = std::min (lo, f); }
+        }
+    }
+    if (! std::isfinite (hi) || ! std::isfinite (lo) || hi < lo) return;
+
+    const float st = gridStep();
+    const float wantTop = std::max (defTop, std::ceil ((hi + 1.5f) / st) * st);
+    const float wantBot = std::min (defBot, std::floor ((lo - 1.5f) / st) * st);
+
+    if (wantTop > rangeTop || wantBot < rangeBottom)        // cresce na hora
+    {
+        rangeTop = std::max (rangeTop, wantTop);
+        rangeBottom = std::min (rangeBottom, wantBot);
+        shrinkTicks = 0;
+    }
+    else if (wantTop < rangeTop || wantBot > rangeBottom)   // encolhe só depois de ~3 s estável (evita "pulos")
+    {
+        if (++shrinkTicks > 90) { rangeTop = wantTop; rangeBottom = wantBot; shrinkTicks = 0; }
+    }
+    else shrinkTicks = 0;
+}
+
 float GraphView::yOf (float db) const
 {
     const auto r = plotRect();
@@ -361,8 +397,12 @@ void GraphView::paint (juce::Graphics& g)
 
     // ---- grade ----
     g.setFont (mkFont (12.0f * s));
-    for (int db = leveled ? 10 : 8; db >= (leveled ? -10 : -12); db -= (leveled ? 5 : 4))
+    const int gstep = leveled ? 5 : 4;
+    const int span = (int) std::lround (topDb() - bottomDb());
+    const int gmul = span > 40 ? 2 : 1;                       // escala muito grande: grade mais espaçada
+    for (int db = (int) std::floor (topDb() / (float) gstep) * gstep; db >= (int) bottomDb(); db -= gstep * gmul)
     {
+        if (db > (int) topDb()) continue;
         const float y = Y ((float) db);
         g.setColour (db == 0 ? Theme::teal.withAlpha (0.35f) : Theme::edge.withAlpha (0.55f));
         g.drawHorizontalLine ((int) y, plot.getX(), plot.getRight());
